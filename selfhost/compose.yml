@@ -37,9 +37,12 @@ x-rails-env: &rails_env
 
 services:
   web:
-    # SURE_IMAGE switches to your fork's own image once it has custom features
-    # (ghcr.io/jeremy8215/sure:latest). Until then, use upstream's stable image.
-    image: ${SURE_IMAGE:-ghcr.io/we-promise/sure}:${SURE_IMAGE_TAG:-stable}
+    # Built from this fork's code, so custom features (like the Monarch import)
+    # are included. `docker compose up -d --build` rebuilds after a `git pull`.
+    image: sure-fork:latest
+    build:
+      context: ..
+    pull_policy: build
     volumes:
       - app-storage:/rails/storage
     ports:
@@ -59,8 +62,12 @@ services:
       - sure_net
 
   worker:
-    # Runs background jobs, including the scheduled SimpleFIN syncs.
-    image: ${SURE_IMAGE:-ghcr.io/we-promise/sure}:${SURE_IMAGE_TAG:-stable}
+    # Runs background jobs, including the scheduled SimpleFIN syncs. Same image
+    # as web; the second build is fully cached.
+    image: sure-fork:latest
+    build:
+      context: ..
+    pull_policy: build
     command: bundle exec sidekiq
     volumes:
       - app-storage:/rails/storage

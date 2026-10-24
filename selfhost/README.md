@@ -36,8 +36,8 @@ backup can't reconnect to your banks.
 ## 3. Start it
 
 ```bash
-docker compose up -d
-docker compose ps        # web, worker, db, redis and backup should be "running"
+docker compose up -d --build   # first build takes several minutes
+docker compose ps              # web, worker, db, redis and backup should be "running"
 ```
 
 Open `http://<vm-ip>:3000` and create your account. Then lock sign-ups:
@@ -96,16 +96,17 @@ docker compose up -d
 
 ## 7. Updating
 
-While the fork has no custom features, it runs upstream's `stable` image:
+The app is built from this repository's code, so your own features ship with
+it. To update:
 
 ```bash
-cd ~/sure/selfhost
-docker compose pull && docker compose up -d
+cd ~/sure
+git pull
+cd selfhost
+docker compose up -d --build
 ```
 
-Once the fork has its own features, set `SURE_IMAGE=ghcr.io/jeremy8215/sure`
-and `SURE_IMAGE_TAG=latest` in `.env` so it runs the fork's image instead
-(built by the existing `publish.yml` GitHub Actions workflow).
+The first build takes several minutes; later ones reuse cached layers.
 
 ## Keeping the fork close to upstream
 
