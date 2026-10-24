@@ -1,0 +1,5 @@
+Date,Merchant,Category,Account,Original Statement,Notes,Amount,Tags
+2024-01-05,Employer,Paychecks,Everyday Checking (...1234),ACME CORP PAYROLL,,2500.00,
+2024-01-06,Whole Foods,Groceries,Sapphire Preferred (...9876),WHOLEFDS MKT 10234,Weekly shop,-84.12,"Family, Food"
+2024-01-07,,Shopping,Sapphire Preferred (...9876),AMZN MKTP US*2K4,,-19.99,
+2024-01-08,Landlord,Rent,Everyday Checking (...1234),ZELLE TO LANDLORD,January,-1800.00,Family

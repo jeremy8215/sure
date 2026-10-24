@@ -72,6 +72,26 @@ class Import::ConfigurationsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "show renders the Monarch configuration partials" do
+    { "MonarchImport" => "imports/monarch.csv", "MonarchBalanceImport" => "imports/monarch_balances.csv" }.each do |type, fixture|
+      import = @user.family.imports.create!(type: type, raw_file_str: file_fixture(fixture).read, col_sep: ",")
+
+      get import_configuration_url(import)
+
+      assert_response :success
+    end
+  end
+
+  test "applying the Monarch configuration generates rows and account type mappings" do
+    import = @user.family.imports.create!(type: "MonarchImport", raw_file_str: file_fixture("imports/monarch.csv").read, col_sep: ",")
+
+    patch import_configuration_url(import), params: { import: MonarchImport.default_column_mappings.except(:signage_convention) }
+
+    assert_redirected_to import_clean_url(import)
+    assert_equal 4, import.reload.rows_count
+    assert_equal 2, import.mappings.account_types.count
+  end
+
   test "updating a valid configuration regenerates rows" do
     TransactionImport.any_instance.expects(:generate_rows_from_csv).once
 

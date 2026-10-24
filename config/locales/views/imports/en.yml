@@ -144,6 +144,27 @@ en:
         category_label: Category (optional)
         notes_label: Notes (optional)
         apply_configuration: Apply configuration
+      monarch_import:
+        preconfigured_notice: We have pre-configured your Monarch Money transactions import for you. Please proceed to the next step.
+        leave_empty: Leave empty
+        date_label: Date
+        date_format_label: Date format
+        amount_label: Amount
+        account_label: Account (optional)
+        name_label: Merchant (optional)
+        category_label: Category (optional)
+        tags_label: Tags (optional)
+        notes_label: Notes (optional)
+        apply_configuration: Apply configuration
+      monarch_balance_import:
+        preconfigured_notice: We have pre-configured your Monarch Money balance history import for you. Please proceed to the next step.
+        leave_empty: Leave empty
+        date_label: Date
+        date_format_label: Date format
+        balance_label: Balance
+        account_label: Account (optional, leave empty for a single-account file)
+        monthly_notice: Each account keeps its first balance and its last balance of every month. Days already covered by a connected bank sync are skipped.
+        apply_configuration: Apply configuration
       ynab_import:
         preconfigured_notice: We have pre-configured your YNAB import for you. Please proceed to the next step.
         amount_notice: Amounts are detected automatically from the Outflow and Inflow columns.
@@ -361,6 +382,8 @@ en:
       mint_import: "Mint import"
       actual_import: "Actual import"
       ynab_import: "YNAB import"
+      monarch_import: "Monarch import"
+      monarch_balance_import: "Monarch balance history import"
       qif_import: "QIF import"
       category_import: "Category import"
       rule_import: "Rule import"
@@ -397,6 +420,8 @@ en:
           mint_import: "Mint"
           actual_import: "Actual"
           ynab_import: "YNAB"
+          monarch_import: "Monarch"
+          monarch_balance_import: "Monarch balances"
           qif_import: "QIF"
           category_import: "Category"
           rule_import: "Rule"
@@ -424,6 +449,8 @@ en:
       tab_financial_tools: Financial Tools & Files
       tab_raw_data: Raw Data
       import_ynab: Import from YNAB
+      import_monarch: Import from Monarch Money (transactions)
+      import_monarch_balances: Import from Monarch Money (balance history)
       import_accounts: Import accounts
       import_categories: Import categories
       import_merchants: Import merchants
