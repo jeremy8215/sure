@@ -11,7 +11,7 @@ class Import::AccountMapping < Import::Mapping
   end
 
   def selectable_values
-    family_accounts = import.family.accounts.manual.alphabetically.map { |account| [ account.name, account.id ] }
+    family_accounts = import.account_mapping_candidates.map { |account| [ account.name, account.id ] }
 
     unless key.blank?
       family_accounts.unshift [ "Add as new account", CREATE_NEW_KEY ]
@@ -39,7 +39,7 @@ class Import::AccountMapping < Import::Mapping
       new_account.balance = 0
       new_account.import = import
       new_account.currency = import.family.currency
-      new_account.accountable = Depository.new
+      new_account.accountable = import.build_accountable_for_new_account(key)
     end
 
     self.mappable = account

@@ -39,7 +39,7 @@ class Import < ApplicationRecord
 
   DOCUMENT_TYPES = %w[bank_statement credit_card_statement investment_statement financial_document contract other].freeze
 
-  TYPES = %w[TransactionImport TradeImport AccountImport MintImport ActualImport YnabImport CategoryImport RuleImport MerchantImport PdfImport QifImport SureImport].freeze
+  TYPES = %w[TransactionImport TradeImport AccountImport MintImport ActualImport YnabImport MonarchImport MonarchBalanceImport CategoryImport RuleImport MerchantImport PdfImport QifImport SureImport].freeze
   # Imports that write family-wide configuration (categories, tags, rules,
   # merchants), which guests may view but not change.
   FAMILY_CONFIG_TYPES = %w[CategoryImport MerchantImport RuleImport SureImport].freeze
@@ -512,6 +512,17 @@ class Import < ApplicationRecord
   # (e.g. by name). Subclasses that do this override it.
   def preexisting_target_account_ids
     []
+  end
+
+  # Accounts offered when mapping a file's account names. Subclasses that may
+  # write into provider-linked accounts override it.
+  def account_mapping_candidates
+    family.accounts.manual.alphabetically
+  end
+
+  # Accountable for an account created from an unmapped account name.
+  def build_accountable_for_new_account(_account_name)
+    Depository.new
   end
 
   def has_unassigned_account?

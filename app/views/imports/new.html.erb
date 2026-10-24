@@ -30,7 +30,7 @@
     <% end %>
 
     <%
-      financial_tool_types = %w[MintImport ActualImport YnabImport QifImport SureImport DocumentImport PdfImport]
+      financial_tool_types = %w[MintImport ActualImport YnabImport MonarchImport MonarchBalanceImport QifImport SureImport DocumentImport PdfImport]
       import_type = params[:type].presence || @pending_import&.type
       active_tab = import_type.present? && !import_type.in?(financial_tool_types) ? "raw_data" : "financial_tools"
     %>
@@ -117,6 +117,26 @@
                 icon_bg_class: "bg-teal-500/5",
                 icon_text_class: "text-teal-500",
                 label: t(".import_qif"),
+                enabled: true %>
+            <% end %>
+
+            <% if params[:type].nil? || params[:type] == "MonarchImport" %>
+              <%= render "imports/import_option",
+                type: "MonarchImport",
+                icon_name: "crown",
+                icon_bg_class: "bg-violet-500/5",
+                icon_text_class: "text-violet-500",
+                label: t(".import_monarch"),
+                enabled: true %>
+            <% end %>
+
+            <% if params[:type].nil? || params[:type] == "MonarchBalanceImport" %>
+              <%= render "imports/import_option",
+                type: "MonarchBalanceImport",
+                icon_name: "trending-up",
+                icon_bg_class: "bg-violet-500/5",
+                icon_text_class: "text-violet-500",
+                label: t(".import_monarch_balances"),
                 enabled: true %>
             <% end %>
 

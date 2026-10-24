@@ -263,4 +263,80 @@ class ImportsTest < ApplicationSystemTestCase
 
     click_on "Back to dashboard"
   end
+
+  test "monarch import" do
+    visit new_import_path
+
+    click_on "Financial Tools"
+    click_on "Import from Monarch Money (transactions)"
+
+    within_testid("import-tabs") do
+      click_on "Copy & Paste"
+    end
+
+    fill_in "import[raw_file_str]", with: file_fixture("imports/monarch.csv").read
+
+    find_field("import[raw_file_str]").find(:xpath, "./ancestor::form").click_button("Upload CSV")
+
+    click_on "Apply configuration"
+
+    click_on "Next step"
+
+    assert_selector "h1", text: "Assign your categories"
+    click_on "Next"
+
+    assert_selector "h1", text: "Assign your tags"
+    click_on "Next"
+
+    assert_selector "h1", text: "Assign your accounts"
+    click_on "Next"
+
+    assert_selector "h1", text: "Assign your account types"
+    click_on "Next"
+
+    click_on "Publish import"
+
+    assert_text "Import in progress"
+
+    perform_enqueued_jobs
+
+    click_on "Check status"
+
+    assert_text "Import successful"
+  end
+
+  test "monarch balance history import" do
+    visit new_import_path
+
+    click_on "Financial Tools"
+    click_on "Import from Monarch Money (balance history)"
+
+    within_testid("import-tabs") do
+      click_on "Copy & Paste"
+    end
+
+    fill_in "import[raw_file_str]", with: file_fixture("imports/monarch_balances.csv").read
+
+    find_field("import[raw_file_str]").find(:xpath, "./ancestor::form").click_button("Upload CSV")
+
+    click_on "Apply configuration"
+
+    click_on "Next step"
+
+    assert_selector "h1", text: "Assign your accounts"
+    click_on "Next"
+
+    assert_selector "h1", text: "Assign your account types"
+    click_on "Next"
+
+    click_on "Publish import"
+
+    assert_text "Import in progress"
+
+    perform_enqueued_jobs
+
+    click_on "Check status"
+
+    assert_text "Import successful"
+  end
 end
