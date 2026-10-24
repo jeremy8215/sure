@@ -1,0 +1,147 @@
+# ===========================================================================
+# Jeremy's self-hosted Sure (Docker Compose)
+# ===========================================================================
+#
+# Based on the upstream compose.example.yml, kept in its own folder so that
+# merging upstream changes never conflicts with it.
+#
+# Setup:  see selfhost/README.md
+# Run:    docker compose up -d       (from inside this folder)
+#
+# Unlike the upstream example, there are no default secrets here: Compose
+# refuses to start until SECRET_KEY_BASE and POSTGRES_PASSWORD are set in
+# .env (run ./setup.sh to generate them).
+
+x-db-env: &db_env
+  POSTGRES_USER: ${POSTGRES_USER:-sure_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./setup.sh to create .env}
+  POSTGRES_DB: ${POSTGRES_DB:-sure_production}
+
+x-rails-env: &rails_env
+  <<: *db_env
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?run ./setup.sh to create .env}
+  SELF_HOSTED: "true"
+  # Set to "closed" after you've created your account so nobody else can sign up.
+  ONBOARDING_STATE: ${ONBOARDING_STATE:-open}
+  # Set both to "true" once the app sits behind an HTTPS reverse proxy.
+  RAILS_FORCE_SSL: ${RAILS_FORCE_SSL:-false}
+  RAILS_ASSUME_SSL: ${RAILS_ASSUME_SSL:-false}
+  APP_DOMAIN: ${APP_DOMAIN:-}
+  DB_HOST: db
+  DB_PORT: 5432
+  REDIS_URL: redis://redis:6379/1
+  # Optional AI features (chat, auto-categorize). Leave blank to disable.
+  OPENAI_ACCESS_TOKEN: ${OPENAI_ACCESS_TOKEN:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-}
+  OPENAI_URI_BASE: ${OPENAI_URI_BASE:-}
+
+services:
+  web:
+    # SURE_IMAGE switches to your fork's own image once it has custom features
+    # (ghcr.io/jeremy8215/sure:latest). Until then, use upstream's stable image.
+    image: ${SURE_IMAGE:-ghcr.io/we-promise/sure}:${SURE_IMAGE_TAG:-stable}
+    volumes:
+      - app-storage:/rails/storage
+    ports:
+      - ${PORT:-3000}:3000
+    restart: unless-stopped
+    environment:
+      <<: *rails_env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    networks:
+      - sure_net
+
+  worker:
+    # Runs background jobs, including the scheduled SimpleFIN syncs.
+    image: ${SURE_IMAGE:-ghcr.io/we-promise/sure}:${SURE_IMAGE_TAG:-stable}
+    command: bundle exec sidekiq
+    volumes:
+      - app-storage:/rails/storage
+    restart: unless-stopped
+    environment:
+      <<: *rails_env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    networks:
+      - sure_net
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      <<: *db_env
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sure_net
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sure_net
+
+  backup:
+    # Nightly database dump into ./backups, keeping BACKUP_KEEP_DAYS days.
+    # Pair it with a Proxmox backup of the whole VM/LXC for full coverage.
+    image: postgres:16
+    restart: unless-stopped
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+    environment:
+      <<: *db_env
+      PGHOST: db
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        export PGPASSWORD="$$POSTGRES_PASSWORD"
+        while true; do
+          file="/backups/sure-$$(date +%Y%m%d-%H%M%S).sql.gz"
+          if pg_dump -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" | gzip > "$$file.tmp"; then
+            mv "$$file.tmp" "$$file" && echo "backup: wrote $$file"
+          else
+            rm -f "$$file.tmp"; echo "backup: pg_dump failed"
+          fi
+          find /backups -name 'sure-*.sql.gz' -mtime +"$$BACKUP_KEEP_DAYS" -delete
+          sleep 86400
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - sure_net
+
+volumes:
+  app-storage:
+  postgres-data:
+  redis-data:
+
+networks:
+  sure_net:
+    driver: bridge

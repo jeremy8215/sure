@@ -1,2 +1,4 @@
 .env
 backups/
+# The root .gitignore ignores compose.yml; this one is meant to be tracked.
+!compose.yml
