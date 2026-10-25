@@ -1,0 +1,191 @@
+# ===========================================================================
+# Jeremy's self-hosted Sure (Docker Compose)
+# ===========================================================================
+#
+# Based on the upstream compose.example.yml, kept in its own folder so that
+# merging upstream changes never conflicts with it.
+#
+# Setup:  see selfhost/README.md
+# Run:    docker compose up -d       (from inside this folder)
+#
+# Unlike the upstream example, there are no default secrets here: Compose
+# refuses to start until SECRET_KEY_BASE and POSTGRES_PASSWORD are set in
+# .env (run ./setup.sh to generate them).
+
+x-db-env: &db_env
+  POSTGRES_USER: ${POSTGRES_USER:-sure_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./setup.sh to create .env}
+  POSTGRES_DB: ${POSTGRES_DB:-sure_production}
+
+x-rails-env: &rails_env
+  <<: *db_env
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?run ./setup.sh to create .env}
+  SELF_HOSTED: "true"
+  # Set to "closed" after you've created your account so nobody else can sign up.
+  ONBOARDING_STATE: ${ONBOARDING_STATE:-open}
+  # Set both to "true" once the app sits behind an HTTPS reverse proxy.
+  RAILS_FORCE_SSL: ${RAILS_FORCE_SSL:-false}
+  RAILS_ASSUME_SSL: ${RAILS_ASSUME_SSL:-false}
+  APP_DOMAIN: ${APP_DOMAIN:-}
+  DB_HOST: db
+  DB_PORT: 5432
+  REDIS_URL: redis://redis:6379/1
+  # Optional AI features (chat, auto-categorize). Leave blank to disable.
+  OPENAI_ACCESS_TOKEN: ${OPENAI_ACCESS_TOKEN:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-}
+  OPENAI_URI_BASE: ${OPENAI_URI_BASE:-}
+
+services:
+  web:
+    # Built from this fork's code, so custom features (like the Monarch import)
+    # are included. `docker compose up -d --build` rebuilds after a `git pull`.
+    image: sure-fork:latest
+    build:
+      context: ..
+    pull_policy: build
+    volumes:
+      - app-storage:/rails/storage
+    ports:
+      - ${PORT:-3000}:3000
+    restart: unless-stopped
+    environment:
+      <<: *rails_env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    networks:
+      - sure_net
+
+  worker:
+    # Runs background jobs, including the scheduled SimpleFIN syncs. Same image
+    # as web; the second build is fully cached.
+    image: sure-fork:latest
+    build:
+      context: ..
+    pull_policy: build
+    command: bundle exec sidekiq
+    volumes:
+      - app-storage:/rails/storage
+    restart: unless-stopped
+    environment:
+      <<: *rails_env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    networks:
+      - sure_net
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      <<: *db_env
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sure_net
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sure_net
+
+  backup:
+    # Nightly backup into ./backups, keeping BACKUP_KEEP_DAYS days: a database
+    # dump plus an archive of uploaded files. Runs once at start too, so
+    # `docker compose restart backup` makes a backup right away.
+    image: postgres:16
+    restart: unless-stopped
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      - app-storage:/storage:ro
+    environment:
+      <<: *db_env
+      PGHOST: db
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        export PGPASSWORD="$$POSTGRES_PASSWORD"
+        while true; do
+          stamp="$$(date +%Y%m%d-%H%M%S)"
+          db="/backups/sure-db-$$stamp.sql.gz"
+          files="/backups/sure-files-$$stamp.tar.gz"
+          # Partial files keep a .tmp suffix so offsite sync never uploads them.
+          if pg_dump -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -Z 6 -f "$$db.tmp"; then
+            mv "$$db.tmp" "$$db" && echo "backup: wrote $$db"
+          else
+            rm -f "$$db.tmp"; echo "backup: pg_dump failed"
+          fi
+          if tar -czf "$$files.tmp" -C /storage .; then
+            mv "$$files.tmp" "$$files" && echo "backup: wrote $$files"
+          else
+            rm -f "$$files.tmp"; echo "backup: archiving uploaded files failed"
+          fi
+          find /backups -name 'sure-*.gz' -mtime +"$$BACKUP_KEEP_DAYS" -delete
+          sleep 86400
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - sure_net
+
+  backup-offsite:
+    # Optional: copies ./backups to OneDrive (or any rclone remote) every few
+    # hours and removes copies older than OFFSITE_KEEP_DAYS there. Enabled by
+    # COMPOSE_PROFILES=offsite in .env once rclone is set up (see README).
+    profiles:
+      - offsite
+    image: rclone/rclone:1.71
+    restart: unless-stopped
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups:ro
+      - ./rclone:/config/rclone
+    environment:
+      OFFSITE_DESTINATION: ${OFFSITE_DESTINATION:-onedrive:Backups/Sure}
+      OFFSITE_KEEP_DAYS: ${OFFSITE_KEEP_DAYS:-90}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        while true; do
+          if rclone copy /backups "$$OFFSITE_DESTINATION" --include 'sure-*.gz'; then
+            rclone delete "$$OFFSITE_DESTINATION" --include 'sure-*.gz' --min-age "$${OFFSITE_KEEP_DAYS}d"
+            echo "backup-offsite: synced to $$OFFSITE_DESTINATION"
+          else
+            echo "backup-offsite: copy failed, retrying in 6 hours"
+          fi
+          sleep 21600
+        done
+
+volumes:
+  app-storage:
+  postgres-data:
+  redis-data:
+
+networks:
+  sure_net:
+    driver: bridge
