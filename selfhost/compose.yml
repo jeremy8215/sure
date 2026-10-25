@@ -114,12 +114,14 @@ services:
       - sure_net
 
   backup:
-    # Nightly database dump into ./backups, keeping BACKUP_KEEP_DAYS days.
-    # Pair it with a Proxmox backup of the whole VM/LXC for full coverage.
+    # Nightly backup into ./backups, keeping BACKUP_KEEP_DAYS days: a database
+    # dump plus an archive of uploaded files. Runs once at start too, so
+    # `docker compose restart backup` makes a backup right away.
     image: postgres:16
     restart: unless-stopped
     volumes:
       - ${BACKUP_DIR:-./backups}:/backups
+      - app-storage:/storage:ro
     environment:
       <<: *db_env
       PGHOST: db
@@ -129,13 +131,21 @@ services:
       - |
         export PGPASSWORD="$$POSTGRES_PASSWORD"
         while true; do
-          file="/backups/sure-$$(date +%Y%m%d-%H%M%S).sql.gz"
-          if pg_dump -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" | gzip > "$$file.tmp"; then
-            mv "$$file.tmp" "$$file" && echo "backup: wrote $$file"
+          stamp="$$(date +%Y%m%d-%H%M%S)"
+          db="/backups/sure-db-$$stamp.sql.gz"
+          files="/backups/sure-files-$$stamp.tar.gz"
+          # Partial files keep a .tmp suffix so offsite sync never uploads them.
+          if pg_dump -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -Z 6 -f "$$db.tmp"; then
+            mv "$$db.tmp" "$$db" && echo "backup: wrote $$db"
           else
-            rm -f "$$file.tmp"; echo "backup: pg_dump failed"
+            rm -f "$$db.tmp"; echo "backup: pg_dump failed"
           fi
-          find /backups -name 'sure-*.sql.gz' -mtime +"$$BACKUP_KEEP_DAYS" -delete
+          if tar -czf "$$files.tmp" -C /storage .; then
+            mv "$$files.tmp" "$$files" && echo "backup: wrote $$files"
+          else
+            rm -f "$$files.tmp"; echo "backup: archiving uploaded files failed"
+          fi
+          find /backups -name 'sure-*.gz' -mtime +"$$BACKUP_KEEP_DAYS" -delete
           sleep 86400
         done
     depends_on:
@@ -143,6 +153,33 @@ services:
         condition: service_healthy
     networks:
       - sure_net
+
+  backup-offsite:
+    # Optional: copies ./backups to OneDrive (or any rclone remote) every few
+    # hours and removes copies older than OFFSITE_KEEP_DAYS there. Enabled by
+    # COMPOSE_PROFILES=offsite in .env once rclone is set up (see README).
+    profiles:
+      - offsite
+    image: rclone/rclone:1.71
+    restart: unless-stopped
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups:ro
+      - ./rclone:/config/rclone
+    environment:
+      OFFSITE_DESTINATION: ${OFFSITE_DESTINATION:-onedrive:Backups/Sure}
+      OFFSITE_KEEP_DAYS: ${OFFSITE_KEEP_DAYS:-90}
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        while true; do
+          if rclone copy /backups "$$OFFSITE_DESTINATION" --include 'sure-*.gz'; then
+            rclone delete "$$OFFSITE_DESTINATION" --include 'sure-*.gz' --min-age "$${OFFSITE_KEEP_DAYS}d"
+            echo "backup-offsite: synced to $$OFFSITE_DESTINATION"
+          else
+            echo "backup-offsite: copy failed, retrying in 6 hours"
+          fi
+          sleep 21600
+        done
 
 volumes:
   app-storage:

@@ -1,4 +1,6 @@
 .env
 backups/
+# Holds the OneDrive sign-in token.
+rclone/
 # The root .gitignore ignores compose.yml; this one is meant to be tracked.
 !compose.yml

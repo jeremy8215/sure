@@ -79,20 +79,93 @@ point it at `http://<vm-ip>:3000` and set the same three values.
 
 ## 6. Backups
 
-- The `backup` service writes a compressed database dump to
-  `selfhost/backups/` every 24 hours and keeps 14 days of them
-  (`BACKUP_KEEP_DAYS`).
-- Also schedule a Proxmox backup of the whole VM (Datacenter → Backup),
-  ideally to a different disk or a Proxmox Backup Server.
+### On the server
 
-To restore a dump into a fresh install:
+The `backup` service runs every 24 hours and writes two files to
+`selfhost/backups/`:
+
+- `sure-db-<date>.sql.gz`: the whole database.
+- `sure-files-<date>.tar.gz`: uploaded files (statements, attachments).
+
+It keeps 14 days of them (`BACKUP_KEEP_DAYS`). To make a backup right now, run
+`docker compose restart backup`.
+
+Also schedule a Proxmox backup of the whole VM (Datacenter → Backup),
+ideally to a different disk or a Proxmox Backup Server.
+
+### Copying backups to OneDrive
+
+The optional `backup-offsite` service uses [rclone](https://rclone.org) to copy
+the backups folder to OneDrive every 6 hours, and deletes copies older than 90
+days there (`OFFSITE_KEEP_DAYS`).
+
+**One-time sign-in.** OneDrive needs a browser sign-in, and the VM has no
+browser, so the sign-in happens on your laptop:
+
+1. On your laptop, install rclone ([rclone.org/install](https://rclone.org/install/),
+   or `brew install rclone` / `winget install Rclone.Rclone`) and run:
+
+   ```bash
+   rclone authorize "onedrive"
+   ```
+
+   A browser opens. Sign in to Microsoft and approve access. The terminal then
+   prints a token: a block of text starting with `{"access_token":`. Copy all of it.
+
+2. On the VM, in `~/sure/selfhost`, run rclone's setup:
+
+   ```bash
+   mkdir -p rclone
+   docker run --rm -it -v "$PWD/rclone:/config/rclone" rclone/rclone:1.71 config
+   ```
+
+   Answer the prompts like this:
+   - `n` for a new remote, and name it `onedrive`
+   - Storage type: `onedrive`
+   - `client_id` and `client_secret`: leave blank
+   - Region: `global`
+   - Edit advanced config: `n`
+   - Use web browser to automatically authenticate: `n`
+   - `config_token`: paste the token from step 1
+   - Config type: `onedrive` (OneDrive Personal or Business), then pick your
+     drive and confirm with `y`
+   - `y` to keep the remote, then `q` to quit
+
+   Accept the default for any other question rclone asks.
+
+3. In `.env`, uncomment `COMPOSE_PROFILES=offsite` (and change
+   `OFFSITE_DESTINATION` if you want a folder other than `Backups/Sure`), then:
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f backup-offsite   # should print "synced to onedrive:Backups/Sure"
+   ```
+
+The token is saved in `selfhost/rclone/rclone.conf`, which git ignores. If
+OneDrive sign-in ever expires, the log shows "copy failed". Repeat steps 1 and
+2 and choose to edit the existing `onedrive` remote.
+
+**Keep `.env` out of OneDrive.** The backups contain your financial data, and
+`.env` holds the key that decrypts your saved bank connections. Keeping that key
+in your password manager instead of next to the backups means someone who gets
+into your OneDrive still can't reconnect to your banks.
+
+### Restoring
+
+On a fresh install (after `./setup.sh`, with your saved `.env` copied back in):
 
 ```bash
 docker compose up -d db
-gunzip -c backups/sure-YYYYMMDD-HHMMSS.sql.gz | \
+gunzip -c backups/sure-db-YYYYMMDD-HHMMSS.sql.gz | \
   docker compose exec -T db psql -U sure_user -d sure_production
+docker compose run --rm --no-deps -u 0 --entrypoint tar \
+  -v "$PWD/backups:/backups" web -xzf /backups/sure-files-YYYYMMDD-HHMMSS.tar.gz -C /rails/storage
 docker compose up -d
 ```
+
+To restore from OneDrive, first download the two files into `selfhost/backups/`,
+either from the OneDrive website or with
+`docker run --rm -v "$PWD/rclone:/config/rclone" -v "$PWD/backups:/backups" rclone/rclone:1.71 copy onedrive:Backups/Sure /backups`.
 
 ## 7. Updating
 
